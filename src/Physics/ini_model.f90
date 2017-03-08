@@ -130,7 +130,7 @@ CONTAINS
     REAL                            :: b11, b22, b12, b13, b23, b33           ! coefficients for special loading
     REAL                            :: yN1, yN2, yS1, yS2, xS1, xS2, alpha
     REAL                            :: nLayers, zLayers(20), rhoLayers(20)
-    REAL                            :: sigzz, Rz, g
+    REAL                            :: sigzz, Rx, Rz, g
     REAL                            :: bii(6)
     INTEGER         :: nTens3GP
     REAL,POINTER    :: Tens3GaussP(:,:)
@@ -604,6 +604,85 @@ CONTAINS
 
         ENDDO
 
+      CASE(119) !New Rough Fault : homogenous stress and Plasticity 
+         !b11 = 1.025837D0
+         !b33 = 0.974162D0
+         !b13 =-0.158649D0
+        !0.8
+        b11 = 1.0296d0
+        b33 = 0.9704d0
+        b13 =-0.1643d0
+        !0.7
+        b11 = 1.0285d0
+        b33 = 0.9715d0
+        b13 =-0.1584d0
+        g = 9.8D0    
+
+        if (EQN%Anelasticity.EQ.1) THEN
+           DO iElem=1, MESH%nElem
+              MaterialTmp(:) = EQN%MODEL(1,:)
+              MaterialVal(iElem,1:3) = MaterialTmp(1:3)
+              EQN%LocAnelastic(iElem) = 1                                        ! Mark element with anelastic material
+              CALL ini_ATTENUATION(Theta,w_freq,Material_INF,MaterialTmp,EQN)    ! Initialize anelastic coefficients for this zone     
+              MaterialVal(iElem,2:EQN%AneMatIni-1) = Material_INF(:)             ! Set unrelaxed material properties for this zone.                                                                      !
+              ! Fill MaterialVal vector for each element with anelastic coefficients w_freq and theta 
+              DO iMech = 1, EQN%nMechanisms
+                 MaterialVal(iElem,EQN%AneMatIni+4*(iMech-1))             = w_freq(iMech)
+                 MaterialVal(iElem,EQN%AneMatIni+4*(iMech-1)+1:EQN%AneMatIni+4*(iMech-1)+3) = Theta(iMech,:)
+              ENDDO
+           ENDDO
+        ELSE
+           MaterialVal(:,1) = EQN%rho0
+           MaterialVal(:,2) = EQN%mu
+           MaterialVal(:,3) = EQN%lambda
+        ENDIF
+
+
+        ! Initialisation of IniStress(6 stress components in 3D)
+        !
+        ALLOCATE(EQN%IniStress(6,MESH%nElem))
+        EQN%IniStress(:,:)=0.0D0
+
+        DO iElem=1, MESH%nElem
+
+                x = MESH%ELEM%xyBary(1,iElem) 
+                z = MESH%ELEM%xyBary(3,iElem) !average depth inside an element
+
+          IF (x.LT.-19000D0) THEN
+             Rx = (-x - 19000D0)/5e3
+          ELSEIF (x.GT.19000D0) THEN
+             Rx = (x - 19000D0)/5e3
+          ELSE
+             Rx = 0.
+          ENDIF
+
+          IF (z.LT.-19000D0) THEN
+             Rz = (-z - 19000D0)/5e3
+          ELSE
+             Rz = 0.
+          ENDIF
+          Omega = 1d0-min(1D0,sqrt(Rx**2+Rz**2))
+
+
+          !IF (z.GE.-17000.0D0) THEN
+          !    Omega = 1D0
+          !ELSEIF (z.GE.-22000D0) THEN
+          !    Omega = (z+22000D0)/5000D0
+          !ELSE
+          !    Omega = 0D0
+          !ENDIF
+          Pf = 0000D0 * g * z
+          EQN%IniStress(3,iElem) = 2670d0*g*(-10e3)
+          EQN%IniStress(1,iElem) =  Omega*(b11*(EQN%IniStress(3,iElem)+Pf)-Pf)+(1d0-Omega)*EQN%IniStress(3,iElem)
+          EQN%IniStress(2,iElem) =  Omega*(b33*(EQN%IniStress(3,iElem)+Pf)-Pf)+(1d0-Omega)*EQN%IniStress(3,iElem)
+          EQN%IniStress(4,iElem)  =  Omega*(b13*(EQN%IniStress(3,iElem)+Pf))
+          EQN%IniStress(5,iElem)  = 0.0  
+          EQN%IniStress(6,iElem)  = 0.0  
+          EQN%IniStress(1,iElem)  =   EQN%IniStress(1,iElem) + Pf
+          EQN%IniStress(2,iElem)  =   EQN%IniStress(2,iElem) + Pf
+          EQN%IniStress(3,iElem)  =   EQN%IniStress(3,iElem) + Pf
+
+        ENDDO
 
       CASE(33)     ! T. Ulrich TPV33 14.01.16
         DO iElem = 1, MESH%nElem
