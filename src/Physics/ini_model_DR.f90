@@ -2011,6 +2011,7 @@ MODULE ini_model_DR_mod
   REAL                           :: yN1, yN2, yS1, yS2, xS1, xS2, alpha
   REAL                           :: sigzz, Rz, zLayers(20), rhoLayers(20)
   REAL                           :: bii(6)
+  REAL                           :: zStressTapering, yR1, yR2, xR1, xR2
   !-------------------------------------------------------------------------! 
   INTENT(IN)    :: MESH, BND 
   INTENT(INOUT) :: DISC,EQN
@@ -2034,6 +2035,10 @@ MODULE ini_model_DR_mod
      ys2 = 6.0795713230e+05
      !4
   ENDIF
+  xR1 = 806e3 -10e3
+  yR1 = 352e3 + 10e3
+  xR2 = xR1 -60e3
+  yR2 = yR1 + 60e3
 
   g = 9.8D0
   zIncreasingCohesion = -10000.
@@ -2106,13 +2111,22 @@ MODULE ini_model_DR_mod
              ENDIF
           ENDDO
 
-          IF (zGP.LT.-25000D0) THEN
-             Rz = (-zGp - 25000D0)/150e3
-             !Rz = (-zGp - 25000D0)/50e3
-             !Rz = 0d0
+          !increase tappering depth around hypocenter
+          IF ((yGP-yR1).LT.(xGP-XR1)) THEN
+              zStressTapering = -50e3
+          ELSE IF ((yGP-yR2).LT.(xGP-XR2)) THEN
+              alpha = ((yGP-xGP)-(yR1-xR1))/((yR2-xR2)-(yR1-xR1))
+              zStressTapering = -50e3 + 25e3*alpha
+          ELSE
+              zStressTapering = -25e3
+          ENDIF
+
+          IF (zGP.LT.zStressTapering) THEN
+             Rz = (-zGp + zStressTapering)/150e3
           ELSE
              Rz = 0.
           ENDIF
+
           !Rz = max(0D0,min(0.99999999999d0, Rz))
           !DISC%DynRup%Mu_D(i,iBndGP) = (1d0-Rz)*DISC%DynRup%Mu_D_ini + Rz*DISC%DynRup%Mu_S_ini
           !Rz = 0d0
@@ -2133,16 +2147,16 @@ MODULE ini_model_DR_mod
 
              IF ((yGP-yS1).LT.(xGP-XS1)) THEN
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 8.0, 555562000.0, 0.4e6, 0.7, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, EQN%Bulk_yy_0,, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yS2).LT.(xGP-XS2)) THEN
                 alpha = ((yGP-xGP)-(yS1-xS1))/((yS2-xS2)-(yS1-xS1))
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,(1.0-alpha)*309.0+alpha*330.0, 8.0, 555562000.0, 0.4e6, 0.7, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,(1.0-alpha)*309.0+alpha*330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,330.0, 8.0, 555562000.0, 0.4e6, 0.7, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ENDIF
           ENDIF
