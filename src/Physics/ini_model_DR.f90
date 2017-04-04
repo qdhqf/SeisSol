@@ -2113,10 +2113,10 @@ MODULE ini_model_DR_mod
 
           !increase tappering depth around hypocenter
           IF ((yGP-yR1).LT.(xGP-XR1)) THEN
-              zStressTapering = -50e3
+              zStressTapering = -35e3
           ELSE IF ((yGP-yR2).LT.(xGP-XR2)) THEN
               alpha = ((yGP-xGP)-(yR1-xR1))/((yR2-xR2)-(yR1-xR1))
-              zStressTapering = -50e3 + 25e3*alpha
+              zStressTapering = -35e3 + 10e3*alpha
           ELSE
               zStressTapering = -25e3
           ENDIF
