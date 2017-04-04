@@ -2112,6 +2112,7 @@ MODULE ini_model_DR_mod
           ENDDO
 
           !increase tappering depth around hypocenter
+          IF (0) THEN
           IF ((yGP-yR1).LT.(xGP-XR1)) THEN
               zStressTapering = -35e3
           ELSE IF ((yGP-yR2).LT.(xGP-XR2)) THEN
@@ -2120,6 +2121,8 @@ MODULE ini_model_DR_mod
           ELSE
               zStressTapering = -25e3
           ENDIF
+          ENDIF
+          zStressTapering = -50e3
 
           IF (zGP.LT.zStressTapering) THEN
              Rz = (-zGp + zStressTapering)/150e3
@@ -2144,8 +2147,14 @@ MODULE ini_model_DR_mod
              ! lin from cst_C to cst_S
              !**yS1
              ! cst_S
-
-             IF ((yGP-yS1).LT.(xGP-XS1)) THEN
+             IF ((yGP-yR1).LT.(xGP-XR1)) THEN
+                CALL STRESS_DIP_SLIP_AM(DISC,309.0, 10., 555562000.0, 0.4e6, EQN%Bulk_xx_0, bii)
+                b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
+             ELSE IF ((yGP-yR2).LT.(xGP-XR2)) THEN
+                alpha = ((yGP-xGP)-(yR1-xR1))/((yR2-xR2)-(yR1-xR1))
+                CALL STRESS_DIP_SLIP_AM(DISC,309.0, (1.0-alpha)*10.+alpha*EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, bii)
+                b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
+             ELSE IF ((yGP-yS1).LT.(xGP-XS1)) THEN
                 ! strike, dip, sigmazz,cohesion,R
                 CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, EQN%Bulk_yy_0,, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
