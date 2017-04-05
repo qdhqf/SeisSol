@@ -226,7 +226,7 @@ CONTAINS
     INTENT(INOUT)              :: EQN, IC, IO, SOURCE
     !------------------------------------------------------------------------
     INTEGER                    :: Anisotropy, Anelasticity, Plasticity, pmethod, Adjoint, &
-                                  MaterialType, RandomField_Flag, nMechanisms, SumatraRegions(7)
+                                  MaterialType, RandomField_Flag, nMechanisms, SumatraRegions(11)
     REAL                       :: rho, mu, lambda, FreqCentral, FreqRatio, &
                                   PlasticCo, BulkFriction, Tv
     CHARACTER(LEN=600)         :: MaterialFileName, AdjFileName
@@ -273,8 +273,8 @@ CONTAINS
     MaterialType        = 0
     RandomField_Flag    = 0
     nMechanisms         = 0
-    !big box continental LVZ above L1 L2 L3 L4
-    SumatraRegions = (/0,0,0,0,0,0,0/)
+    !big box continental LVZ above L1 L2 L3 L4 (if continental layers not meshed)
+    SumatraRegions = (/0,0,0,0,0,0,0,0,0,0,0/)
     !
     READ(IO%UNIT%FileIn, IOSTAT=readStat, nml = Equations)
     IF (readStat.NE.0) THEN
@@ -286,12 +286,12 @@ CONTAINS
     ! Sumatra setup
        IF (maxval(SumatraRegions).EQ.0) THEN
           logError(*) 'SumatraRegions not set, setting to LR topo model'
-          SumatraRegions = (/5,1,2,7,4,3,6/)
+          SumatraRegions = (/5,1,2,7,4,3,6,0,0,0,0/)
        ELSE
-          logInfo0(*) 'SumatraRegions used:', SumatraRegions(1:7)
+          logInfo0(*) 'SumatraRegions used:', SumatraRegions(1:11)
        ENDIF
     ENDIF
-    EQN%SumatraRegions(1:7) = SumatraRegions(1:7)
+    EQN%SumatraRegions(1:11) = SumatraRegions(1:11)
 
     !
     SELECT CASE(Anisotropy)
