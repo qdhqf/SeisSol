@@ -2148,15 +2148,15 @@ MODULE ini_model_DR_mod
              !**yS1
              ! cst_S
              IF ((yGP-yR1).LT.(xGP-XR1)) THEN
-                CALL STRESS_DIP_SLIP_AM(DISC,309.0, 10., 555562000.0, 0.4e6, EQN%Bulk_xx_0, bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 10., 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yR2).LT.(xGP-XR2)) THEN
                 alpha = ((yGP-xGP)-(yR1-xR1))/((yR2-xR2)-(yR1-xR1))
-                CALL STRESS_DIP_SLIP_AM(DISC,309.0, (1.0-alpha)*10.+alpha*EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, (1.0-alpha)*10.+alpha*EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0,.True., bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yS1).LT.(xGP-XS1)) THEN
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, EQN%Bulk_yy_0,, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yS2).LT.(xGP-XS2)) THEN
                 alpha = ((yGP-xGP)-(yS1-xS1))/((yS2-xS2)-(yS1-xS1))
@@ -2681,7 +2681,7 @@ MODULE ini_model_DR_mod
   REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
   REAL                           :: chi,tau
   REAL                           :: xi, eta, zeta, XGp, YGp, ZGp
-  REAL                           :: b11, b33, b13, Omega, g, Pf, zIncreasingCohesion, Rx, Ry, Rz
+  REAL                           :: b11, b22, b12, bii(6), Omega, g, Pf, zIncreasingCohesion, Rx, Ry, Rz,sigmazz
   !-------------------------------------------------------------------------! 
   INTENT(IN)    :: MESH, BND 
   INTENT(INOUT) :: DISC,EQN
@@ -2692,11 +2692,13 @@ MODULE ini_model_DR_mod
   ! NOTE: z negative is depth, free surface is at z=0
 
   !for conveniently changing the stress level in the PARAMETER file
-  !b11 b33 and b13 are stress ratio and not absolute stress!
-  b11 = EQN%Bulk_xx_0
-  b33 = EQN%Bulk_yy_0
-  b13 = EQN%ShearXY_0
+  !b11 b22 and b12 are stress ratio and not absolute stress!
 
+  
+  sigmazz=-2670 * 9.8 *10e3 
+  CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, 0.7, .False., bii)
+  b11=bii(1);b22=bii(2);b12=bii(4)
+  logError(*) b11,b22,b12
   g = 9.8D0    
   !zIncreasingCohesion = -4000.
   zIncreasingCohesion = 1e10
@@ -2784,8 +2786,8 @@ MODULE ini_model_DR_mod
           
           EQN%IniBulk_zz(i,iBndGP)  =  2670d0*g*(-10e3)
           EQN%IniBulk_xx(i,iBndGP)  =  Omega*(b11*(EQN%IniBulk_zz(i,iBndGP)+Pf)-Pf)+(1d0-Omega)*EQN%IniBulk_zz(i,iBndGP)
-          EQN%IniBulk_yy(i,iBndGP)  =  Omega*(b33*(EQN%IniBulk_zz(i,iBndGP)+Pf)-Pf)+(1d0-Omega)*EQN%IniBulk_zz(i,iBndGP)
-          EQN%IniShearXY(i,iBndGP)  =  Omega*(b13*(EQN%IniBulk_zz(i,iBndGP)+Pf))
+          EQN%IniBulk_yy(i,iBndGP)  =  Omega*(b22*(EQN%IniBulk_zz(i,iBndGP)+Pf)-Pf)+(1d0-Omega)*EQN%IniBulk_zz(i,iBndGP)
+          EQN%IniShearXY(i,iBndGP)  =  Omega*(b12*(EQN%IniBulk_zz(i,iBndGP)+Pf))
           EQN%IniShearXZ(i,iBndGP)  =  0D0
           EQN%IniShearYZ(i,iBndGP)  =  0d0
           EQN%IniBulk_xx(i,iBndGP)  =  EQN%IniBulk_xx(i,iBndGP) + Pf
