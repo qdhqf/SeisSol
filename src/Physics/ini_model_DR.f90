@@ -83,6 +83,7 @@ MODULE ini_model_DR_mod
   PRIVATE :: background_TPV1617
   PRIVATE :: background_TPV2627
   PRIVATE :: background_TPV29
+  PRIVATE :: background_TPV3132
   PRIVATE :: background_TOH1
   PRIVATE :: background_LAN1
   PRIVATE :: background_LAN2
@@ -187,6 +188,9 @@ MODULE ini_model_DR_mod
    CASE(29,30)
        !  SCEC TPV29 test case : rough fault (+plasticity = 30)
        CALL background_TPV29 (DISC,EQN,MESH,BND)
+   CASE(31,32)
+       !  SCEC TPV3132 test case : strike slip rupture in layered medium
+       CALL background_TPV3132 (DISC,EQN,MESH,BND)
    CASE(33)
        !  SCEC TPV3132 test case : strike slip rupture in layered medium
        CALL background_TPV33 (DISC,EQN,MESH,BND)
@@ -3078,6 +3082,146 @@ MODULE ini_model_DR_mod
                 
   ENDDO !    MESH%Fault%nSide                   
   END SUBROUTINE background_NRF
+
+  !> SCEC TPV3132 test case : strike slip rupture in layered medium
+  !> T. ULRICH 02.2015
+  !<
+  SUBROUTINE background_TPV3132 (DISC,EQN,MESH,BND)
+  !-------------------------------------------------------------------------!
+  USE DGBasis_mod
+  !-------------------------------------------------------------------------!
+  IMPLICIT NONE
+  !-------------------------------------------------------------------------!
+  TYPE(tDiscretization), target  :: DISC
+  TYPE(tEquations)               :: EQN
+  TYPE(tUnstructMesh)            :: MESH
+  TYPE (tBoundary)               :: BND
+  !-------------------------------------------------------------------------!
+  ! Local variable declaration
+  LOGICAL                        :: FoundLayer
+  INTEGER                        :: i,j
+  INTEGER                        :: iSide,iElem,iBndGP
+  INTEGER                        :: iLocalNeighborSide,iNeighbor
+  INTEGER                        :: MPIIndex, iObject
+  INTEGER                        :: iLayer
+  REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
+  REAL                           :: x, z, zb
+  REAL                           :: chi,tau
+  REAL                           :: xi, eta, zeta, XGp, YGp, ZGp
+  REAL                           :: mu, mu0
+  REAL                           :: xHypo, zHypo, r
+  REAL, parameter :: PI = 4 * atan (1.0d0)
+  !-------------------------------------------------------------------------! 
+  INTENT(IN)    :: MESH, BND 
+  INTENT(INOUT) :: DISC,EQN
+  !-------------------------------------------------------------------------! 
+  ! TPV29
+  ! stress is assigned to each Gaussian node
+  ! depth dependent stress function (gravity)
+  ! NOTE: z negative is depth, free surface is at z=0
+  logError(*) 'initialization Gauss wise'
+  mu0=32.03812032d9
+  xHypo = 0d0
+  zHypo = -7500d0  
+  ! Loop over every mesh element
+  DO i = 1, MESH%Fault%nSide
+       
+      ! switch for rupture front output: RF
+      IF (DISC%DynRup%RF_output_on == 1) THEN
+          ! rupture front output just for + side elements!
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+      ENDIF
+      
+      ! element ID    
+      iElem = MESH%Fault%Face(i,1,1)
+      iSide = MESH%Fault%Face(i,2,1)  
+      
+      EQN%IniBulk_xx(i,:)  =  EQN%Bulk_xx_0
+      EQN%IniBulk_yy(i,:)  =  EQN%Bulk_yy_0
+      EQN%IniBulk_zz(i,:)  =  EQN%Bulk_zz_0
+      EQN%IniShearXY(i,:)  =  EQN%ShearXY_0
+      EQN%IniShearYZ(i,:)  =  EQN%ShearYZ_0
+      EQN%IniShearXZ(i,:)  =  EQN%ShearXZ_0
+            
+      ! ini frictional parameters
+      !EQN%IniStateVar(i,:) =  EQN%RS_sv0
+                
+      ! Gauss node coordinate definition and stress assignment
+      ! get vertices of complete tet
+      IF (MESH%Fault%Face(i,1,1) == 0) THEN
+          ! iElem is in the neighbor domain
+          ! The neighbor element belongs to a different MPI domain
+          iNeighbor           = MESH%Fault%Face(i,1,2)          ! iNeighbor denotes "-" side
+          iLocalNeighborSide  = MESH%Fault%Face(i,2,2)
+          iObject  = MESH%ELEM%BoundaryToObject(iLocalNeighborSide,iNeighbor)
+          MPIIndex = MESH%ELEM%MPINumber(iLocalNeighborSide,iNeighbor)
+          !
+          xV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(1,1:4,MPIIndex)
+          yV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(2,1:4,MPIIndex)
+          zV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(3,1:4,MPIIndex)
+      ELSE
+          !
+          ! get vertices
+          xV(1:4) = MESH%VRTX%xyNode(1,MESH%ELEM%Vertex(1:4,iElem))
+          yV(1:4) = MESH%VRTX%xyNode(2,MESH%ELEM%Vertex(1:4,iElem))
+          zV(1:4) = MESH%VRTX%xyNode(3,MESH%ELEM%Vertex(1:4,iElem))
+      ENDIF
+          !zb = SUM(zV(1:4))/4.0D0      
+
+      DO iBndGP = 1,DISC%Galerkin%nBndGP
+          !
+          ! Transformation of boundary GP's into XYZ coordinate system
+          chi  = MESH%ELEM%BndGP_Tri(1,iBndGP)
+          tau  = MESH%ELEM%BndGP_Tri(2,iBndGP)
+          CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,chi,tau,iSide,0)
+          CALL TetraTrafoXiEtaZeta2XYZ(xGP,yGP,zGP,xi,eta,zeta,xV,yV,zV)
+      
+          z = zGP  
+          x = xGP
+          !get mu value at GP (more precise that getting directly mu element) 
+           DO iLayer = 1, EQN%nLayers - 1
+             IF( (z.LE.EQN%MODEL(iLayer,1)).AND.(z.GT.EQN%MODEL(iLayer+1,1)) ) THEN
+               FoundLayer = .TRUE.
+               mu = EQN%MODEL(iLayer,3) + (EQN%MODEL(iLayer+1,3) - EQN%MODEL(iLayer,3)) /  &
+                                                                (EQN%MODEL(iLayer+1,1)   - EQN%MODEL(iLayer,1)  ) *  &
+                                                                ( z - EQN%MODEL(iLayer,1) )
+               EXIT
+             ENDIF
+           ENDDO   
+           IF(.NOT.FoundLayer) THEN
+             logError(*) 'Layered Medium Error: No layer found for depth', z
+             STOP
+           ENDIF      
+          EQN%IniBulk_xx(i,iBndGP)  = -60d6*mu/mu0
+          EQN%IniBulk_yy(i,iBndGP)  = -60d6*mu/mu0
+          EQN%IniBulk_zz(i,iBndGP)  =  0d0
+          EQN%IniShearXY(i,iBndGP)  =  30d6*mu/mu0
+          EQN%IniShearXZ(i,iBndGP)  =  0D0
+          EQN%IniShearYZ(i,iBndGP)  =  0d0
+
+          ! distance to hypocenter (approx plane fault)
+          r = sqrt( ((x-xHypo)*(x-xHypo))+((z-zHypo)*(z-zHypo)))
+
+          IF (r.LE.1400D0) THEN
+             EQN%IniShearXY(i,iBndGP)  =  EQN%IniShearXY(i,iBndGP)+4.95d6*mu/mu0
+          ELSEIF (r.LE.2000D0) THEN
+             EQN%IniShearXY(i,iBndGP)  =  EQN%IniShearXY(i,iBndGP)+2.475d6*(mu/mu0)*(1d0+dcos(PI*(r-1400d0)/600d0))
+          ENDIF
+          ! manage cohesion
+          IF (z.GE.-2400.0D0) THEN
+              ! higher cohesion near free surface
+              DISC%DynRup%cohesion(iBndGP,i) = -0.000425d6*(2400d0+z)
+          ELSE
+              ! set cohesion
+              DISC%DynRup%cohesion(iBndGP,i) = 0d0
+          ENDIF
+                
+      ENDDO ! iBndGP
+                
+  ENDDO !    MESH%Fault%nSide   
+                
+  END SUBROUTINE background_TPV3132       
+
 
   !> SCEC TPV33 test case : strike slip rupture in wave guide zone
   !> T. ULRICH 01.2016
