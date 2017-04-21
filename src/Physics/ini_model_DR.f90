@@ -93,6 +93,7 @@ MODULE ini_model_DR_mod
   PRIVATE :: background_TPV101
   PRIVATE :: background_TPV103
   PRIVATE :: background_NRF
+  PRIVATE :: background_NRFhetStr
   PRIVATE :: background_DIP10
   !---------------------------------------------------------------------------!
   PRIVATE :: nucleation_STEP
@@ -224,6 +225,8 @@ MODULE ini_model_DR_mod
        CALL background_TPV103(DISC,EQN,MESH,BND)
     CASE(119)
        CALL background_NRF(DISC,EQN,MESH,BND)
+    CASE(1191)
+       CALL background_NRFhetStr(DISC,EQN,MESH,BND)
     CASE(120)
        CALL background_SUMATRA(DISC,EQN,MESH,BND)
     CASE(121)
@@ -3085,6 +3088,171 @@ MODULE ini_model_DR_mod
                 
   ENDDO !    MESH%Fault%nSide                   
   END SUBROUTINE background_NRF
+
+  !> New rough fault: much more simple, heterogeneous stress + planar fault
+  !> T. ULRICH 02.2015
+  !> Landers1 used as a model
+  !<
+  SUBROUTINE background_NRFhetStr (DISC,EQN,MESH,BND)
+  !-------------------------------------------------------------------------!
+  USE DGBasis_mod
+  !-------------------------------------------------------------------------!
+  IMPLICIT NONE
+  !-------------------------------------------------------------------------!
+  TYPE(tDiscretization), target  :: DISC
+  TYPE(tEquations)               :: EQN
+  TYPE(tUnstructMesh)            :: MESH
+  TYPE (tBoundary)               :: BND
+  !-------------------------------------------------------------------------!
+  ! Local variable declaration
+  INTEGER                        :: i,j
+  INTEGER                        :: iSide,iElem,iBndGP
+  INTEGER                        :: iLocalNeighborSide,iNeighbor
+  INTEGER                        :: MPIIndex, iObject
+  REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
+  REAL                           :: chi,tau
+  REAL                           :: xi, eta, zeta, XGp, YGp, ZGp
+  REAL                           :: b11, b33, b13, Omega, g, Pf, zIncreasingCohesion, Rx, Ry, Rz
+  INTEGER :: nx,ny,fid, i1, j1
+  REAL, ALLOCATABLE :: x1(:), y1(:), LocalStressGrid(:,:,:),DcCorrectorGrid(:,:)
+  REAL                           :: ax,ay,dx,dy
+
+  !-------------------------------------------------------------------------! 
+  INTENT(IN)    :: MESH, BND 
+  INTENT(INOUT) :: DISC,EQN
+  !-------------------------------------------------------------------------! 
+  ! TPV29
+  ! stress is assigned to each Gaussian node
+  ! depth dependent stress function (gravity)
+  ! NOTE: z negative is depth, free surface is at z=0
+
+  zIncreasingCohesion = 1e10
+
+  fid = 96123
+  OPEN(fid,FILE='LocalStressGrid.dat')
+  READ(fid,*) nx
+  ALLOCATE(x1(nx))
+  DO i = 1, nx
+     READ(fid,*) x1(i)
+  ENDDO
+  READ(fid,*) ny
+  ALLOCATE(y1(ny))
+  DO i = 1, ny
+     READ(fid,*) y1(i)
+  ENDDO
+  !dx, dy>0 x increasing y decreasing
+  dx = x1(2) - x1(1)
+  dy = y1(1) - y1(2)
+
+  ALLOCATE(LocalStressGrid(nx,ny,6))
+  ALLOCATE(DcCorrectorGrid(nx,ny))
+  DO i = 1, nx
+     DO j = 1, ny
+          READ(fid,*) LocalStressGrid(i,j,1)
+          READ(fid,*) LocalStressGrid(i,j,2)
+          READ(fid,*) LocalStressGrid(i,j,3)
+          READ(fid,*) LocalStressGrid(i,j,4)
+          READ(fid,*) LocalStressGrid(i,j,5)
+          READ(fid,*) LocalStressGrid(i,j,6)
+          READ(fid,*) DcCorrectorGrid(i,j)
+     ENDDO
+  ENDDO
+  CLOSE(fid)
+
+  ! Loop over every mesh element
+  DO i = 1, MESH%Fault%nSide
+       
+      ! switch for rupture front output: RF
+      IF (DISC%DynRup%RF_output_on == 1) THEN
+          ! rupture front output just for + side elements!
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+      ENDIF
+      
+      ! element ID    
+      iElem = MESH%Fault%Face(i,1,1)
+      iSide = MESH%Fault%Face(i,2,1)  
+      
+      EQN%IniBulk_xx(i,:)  =  EQN%Bulk_xx_0
+      EQN%IniBulk_yy(i,:)  =  EQN%Bulk_yy_0
+      EQN%IniBulk_zz(i,:)  =  EQN%Bulk_zz_0
+      EQN%IniShearXY(i,:)  =  EQN%ShearXY_0
+      EQN%IniShearYZ(i,:)  =  EQN%ShearYZ_0
+      EQN%IniShearXZ(i,:)  =  EQN%ShearXZ_0
+            
+      ! ini frictional parameters
+      !EQN%IniStateVar(i,:) =  EQN%RS_sv0
+                
+      ! Gauss node coordinate definition and stress assignment
+      ! get vertices of complete tet
+      IF (MESH%Fault%Face(i,1,1) == 0) THEN
+          ! iElem is in the neighbor domain
+          ! The neighbor element belongs to a different MPI domain
+          iNeighbor           = MESH%Fault%Face(i,1,2)          ! iNeighbor denotes "-" side
+          iLocalNeighborSide  = MESH%Fault%Face(i,2,2)
+          iObject  = MESH%ELEM%BoundaryToObject(iLocalNeighborSide,iNeighbor)
+          MPIIndex = MESH%ELEM%MPINumber(iLocalNeighborSide,iNeighbor)
+          !
+          xV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(1,1:4,MPIIndex)
+          yV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(2,1:4,MPIIndex)
+          zV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(3,1:4,MPIIndex)
+      ELSE
+          !
+          ! get vertices
+          xV(1:4) = MESH%VRTX%xyNode(1,MESH%ELEM%Vertex(1:4,iElem))
+          yV(1:4) = MESH%VRTX%xyNode(2,MESH%ELEM%Vertex(1:4,iElem))
+          zV(1:4) = MESH%VRTX%xyNode(3,MESH%ELEM%Vertex(1:4,iElem))
+      ENDIF
+
+      DO iBndGP = 1,DISC%Galerkin%nBndGP
+          !
+          ! Transformation of boundary GP's into XYZ coordinate system
+          chi  = MESH%ELEM%BndGP_Tri(1,iBndGP)
+          tau  = MESH%ELEM%BndGP_Tri(2,iBndGP)
+          CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,chi,tau,iSide,0)
+          CALL TetraTrafoXiEtaZeta2XYZ(xGP,yGP,zGP,xi,eta,zeta,xV,yV,zV)
+          DO i1=1,nx
+             if (x1(i1).GE.xGP) THEN
+                EXIT
+             ENDIF
+          ENDDO
+          DO j1=1,ny
+             if (y1(j1).LE.zGP) THEN
+                EXIT
+             ENDIF
+          ENDDO
+          if ((i1.EQ.1) .OR. (j1.EQ.1)) THEN
+             logError(*) "i1 or j1 =1"
+             logError(*) i1,j1, x1(i1),y1(j1), xGP, zGP
+          ENDIF
+          ax = (xGP-x1(i1-1))/dx
+          ay = (y1(j1-1)-zGP)/dy
+
+          EQN%IniBulk_xx(i,iBndGP)  =  ax*ay*LocalStressGrid(i1,j1,1) + (1d0-ax)*ay*LocalStressGrid(i1-1,j1,1) + ax*(1d0-ay)*LocalStressGrid(i1,j1-1,1) + (1d0-ax)*(1d0-ay)*LocalStressGrid(i1-1,j1-1,1)
+          EQN%IniBulk_yy(i,iBndGP)  =  ax*ay*LocalStressGrid(i1,j1,2) + (1d0-ax)*ay*LocalStressGrid(i1-1,j1,2) + ax*(1d0-ay)*LocalStressGrid(i1,j1-1,2) + (1d0-ax)*(1d0-ay)*LocalStressGrid(i1-1,j1-1,2)
+          EQN%IniBulk_zz(i,iBndGP)  =  ax*ay*LocalStressGrid(i1,j1,3) + (1d0-ax)*ay*LocalStressGrid(i1-1,j1,3) + ax*(1d0-ay)*LocalStressGrid(i1,j1-1,3) + (1d0-ax)*(1d0-ay)*LocalStressGrid(i1-1,j1-1,3)
+          EQN%IniShearXY(i,iBndGP)  =  ax*ay*LocalStressGrid(i1,j1,4) + (1d0-ax)*ay*LocalStressGrid(i1-1,j1,4) + ax*(1d0-ay)*LocalStressGrid(i1,j1-1,4) + (1d0-ax)*(1d0-ay)*LocalStressGrid(i1-1,j1-1,4)
+          EQN%IniShearYZ(i,iBndGP)  =  ax*ay*LocalStressGrid(i1,j1,5) + (1d0-ax)*ay*LocalStressGrid(i1-1,j1,5) + ax*(1d0-ay)*LocalStressGrid(i1,j1-1,5) + (1d0-ax)*(1d0-ay)*LocalStressGrid(i1-1,j1-1,5)
+          EQN%IniShearXZ(i,iBndGP)  =  ax*ay*LocalStressGrid(i1,j1,6) + (1d0-ax)*ay*LocalStressGrid(i1-1,j1,6) + ax*(1d0-ay)*LocalStressGrid(i1,j1-1,6) + (1d0-ax)*(1d0-ay)*LocalStressGrid(i1-1,j1-1,6)
+          DISC%DynRup%D_C(i,iBndGP) =  DISC%DynRup%D_C(i,iBndGP) * (ax*ay*DcCorrectorGrid(i1,j1) + (1d0-ax)*ay*DcCorrectorGrid(i1-1,j1) + ax*(1d0-ay)*DcCorrectorGrid(i1,j1-1) + (1d0-ax)*(1d0-ay)*DcCorrectorGrid(i1-1,j1-1))
+          !EQN%IniStateVar(i,iBndGP) =  EQN%RS_sv0
+
+          ! manage cohesion
+          IF (zGP.GE.zIncreasingCohesion) THEN
+              ! higher cohesion near free surface
+              DISC%DynRup%cohesion(iBndGP,i) = -0.4d6-0.0002d6*(zGP-zIncreasingCohesion)
+          ELSE
+              ! set cohesion
+              DISC%DynRup%cohesion(iBndGP,i) = -0.4d6
+          ENDIF
+          
+      ENDDO ! iBndGP
+                
+  ENDDO !    MESH%Fault%nSide   
+  DEALLOCATE(LocalStressGrid)
+  DEALLOCATE(DcCorrectorGrid)
+                
+  END SUBROUTINE background_NRFhetStr
+
 
   SUBROUTINE background_DIP10 (DISC,EQN,MESH,BND)
   !-------------------------------------------------------------------------!
