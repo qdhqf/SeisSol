@@ -360,7 +360,8 @@ MODULE Eval_friction_law_mod
      !output time when shear stress is equal to the dynamic stress after rupture arrived
      !currently only for linear slip weakening
       IF ( (DISC%DynRup%rupture_time(iBndGP,iFace).GT.0.0) .AND. (DISC%DynRup%rupture_time(iBndGP,iFace) .LE. time)) THEN
-          IF(DISC%DynRup%DS(iBndGP,iFace) .AND. ABS(LocSlip).GE.LocD_C) THEN
+          !IF(DISC%DynRup%DS(iBndGP,iFace) .AND. ABS(LocSlip).GE.LocD_C) THEN
+          IF(DISC%DynRup%DS(iFace,iBndGP) .AND. abs(LocMu-LocMu_D)<1e-15) THEN
           DISC%DynRup%dynStress_time(iBndGP,iFace)=time
           DISC%DynRup%DS(iBndGP,iFace) = .FALSE.
           ENDIF
