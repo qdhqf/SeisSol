@@ -130,7 +130,7 @@ CONTAINS
     REAL                            :: b11, b22, b12, b13, b23, b33           ! coefficients for special loading
     REAL                            :: yN1, yN2, yS1, yS2, xS1, xS2, alpha
     REAL                            :: nLayers, zLayers(20), rhoLayers(20)
-    REAL                            :: sigzz, Rx, Rz, g
+    REAL                            :: sigzz, Rx,Ry, Rz, g
     REAL                            :: bii(6)
     INTEGER         :: nTens3GP
     REAL,POINTER    :: Tens3GaussP(:,:)
@@ -1097,18 +1097,16 @@ CONTAINS
 
                 y = MESH%ELEM%xyBary(2,iElem) !average depth inside an element
                 z = MESH%ELEM%xyBary(3,iElem) !average depth inside an element
-          yGP=y
-          zGP=z
-          IF (yGP.LT.-68000D0) THEN
-             Ry = (-yGp - 68000D0)/20e3
-          ELSEIF (yGP.GT.68000D0) THEN
-             Ry = (yGp - 68000D0)/20e3
+          IF (y.LT.-68000D0) THEN
+             Ry = (-y - 68000D0)/20e3
+          ELSEIF (y.GT.68000D0) THEN
+             Ry = (y - 68000D0)/20e3
           ELSE
              Ry = 0.
           ENDIF
 
-          IF (zGP.LT.-45000D0) THEN
-             Rz = (-zGp - 45000D0)/20e3
+          IF (z.LT.-45000D0) THEN
+             Rz = (-z - 45000D0)/20e3
           ! For z close to 0, we play with the cohesion
           !ELSEIF (zGP.GT.-10000D0) THEN
           !   Rz = (zGp + 10000D0)/20e3
