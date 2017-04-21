@@ -93,6 +93,7 @@ MODULE ini_model_DR_mod
   PRIVATE :: background_TPV101
   PRIVATE :: background_TPV103
   PRIVATE :: background_NRF
+  PRIVATE :: background_DIP10
   !---------------------------------------------------------------------------!
   PRIVATE :: nucleation_STEP
   PRIVATE :: nucleation_SMOOTH_GP
@@ -225,6 +226,8 @@ MODULE ini_model_DR_mod
        CALL background_NRF(DISC,EQN,MESH,BND)
     CASE(120)
        CALL background_SUMATRA(DISC,EQN,MESH,BND)
+    CASE(121)
+       CALL background_DIP10(DISC,EQN,MESH,BND)
     CASE(1201)
        CALL background_SUMATRA_GEO(DISC,EQN,MESH,BND)
     CASE(1202)
@@ -3082,6 +3085,258 @@ MODULE ini_model_DR_mod
                 
   ENDDO !    MESH%Fault%nSide                   
   END SUBROUTINE background_NRF
+
+  SUBROUTINE background_DIP10 (DISC,EQN,MESH,BND)
+  !-------------------------------------------------------------------------!
+  USE DGBasis_mod
+  !-------------------------------------------------------------------------!
+  IMPLICIT NONE
+  !-------------------------------------------------------------------------!
+  TYPE(tDiscretization), target  :: DISC
+  TYPE(tEquations)               :: EQN
+  TYPE(tUnstructMesh)            :: MESH
+  TYPE (tBoundary)               :: BND
+  !-------------------------------------------------------------------------!
+  ! Local variable declaration
+  INTEGER                        :: i,j
+  INTEGER                        :: iSide,iElem,iBndGP
+  INTEGER                        :: iLocalNeighborSide,iNeighbor
+  INTEGER                        :: MPIIndex, iObject
+  INTEGER                        :: k, nLayers
+  REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
+  REAL                           :: chi,tau
+  REAL                           :: xi, eta, zeta, XGp, YGp, ZGp, Rx, Ry, Rz
+  REAL                           :: b11, b22, b12, b13, b23, Omega, g, Pf, zIncreasingCohesion
+  REAL                           :: sigzz, zLayers(20), rhoLayers(20)
+  !-------------------------------------------------------------------------! 
+  INTENT(IN)    :: MESH, BND 
+  INTENT(INOUT) :: DISC,EQN
+  !-------------------------------------------------------------------------! 
+  ! TPV29
+  ! stress is assigned to each Gaussian node
+  ! depth dependent stress function (gravity)
+  ! NOTE: z negative is depth, free surface is at z=0
+  ! dip-10
+  ! R = 0.8
+  b11 = 1.4119
+  b22 = 1.2059
+  b12 = 0.0
+  b13 = 0.2763
+  b23 = 0.0000
+  ! R = 0.5 spontaneously stoping
+  b11 = 1.3788
+  b22 = 1.1894
+  b12 = 0.0
+  b13 = 0.2541
+  b23 = 0.0000
+  ! R = 0.7
+  b11 = 1.4008
+  b22 = 1.2004
+  b12 = 0.0
+  b13 = 0.2689
+  b23 = 0.0000
+  ! R = 0.85
+  b11 = 1.4174
+  b22 = 1.2087
+  b12 = 0.000
+  b13 = 0.2800
+  b23 = 0.0000
+  ! R = 0.85
+  b11 = 1.4009
+  b22 = 1.2005
+  b12 = 0.0000
+  b13 = 0.2689
+  b23 = 0.0000
+  ! R = 0.9
+  b11 = 1.4055
+  b22 = 1.2027
+  b12 = 0.0000
+  b13 = 0.2720
+  b23 = 0.0000
+  ! R = 0.7 DIP 16 (inc)
+  b11 = 1.5144
+  b22 = 1.2527
+  b12 = 0.0000
+  b13 = 0.2260
+  b23 = 0.0000
+  ! R = 0.4 DIP 16 (inc)
+  b11 = 1.4760
+  b22 = 1.2280
+  b12 = 0.0000
+  b13 = 0.2091
+  b23 = 0.0000
+  ! R = 0.5 DIP 16 (inc)
+  b11 = 1.4887
+  b22 = 1.2444
+  b12 = 0.0000
+  b13 = 0.2147
+  b23 = 0.0000
+
+  ! R = 0.55 DIP 20 (zhypo = 22.5e3, ie 25e3 taking into account the 2.5e3 water)
+  b11 = 1.5660
+  b22 = 1.2830
+  b12 = 0.0000
+  b13 = 0.1859
+  b23 = 0.0000
+
+  ! R = 0.55 DIP 20 (zhypo = 22.5e3, ie 25e3 taking into account the 2.5e3 water)
+  ! mu = 0.25 0.3
+  b11 = 1.5770
+  b22 = 1.2885
+  b12 = 0.0000
+  b13 = 0.1895
+  b23 = 0.0000
+
+  ! R = 0.55 DIP 20 (zhypo = 22.5e3, ie 25e3 taking into account the 2.5e3 water)
+  ! mu = 0.25 0.3 rho= 3375
+  b11 = 1.5767
+  b22 = 1.2883
+  b12 = 0.0000
+  b13 = 0.1894
+  b23 = 0.0000
+  ! R = 0.6 DIP 20 (zhypo = 22.5e3, ie 25e3 taking into account the 2.5e3 water)
+  ! mu = 0.25 0.3 rho= 3375
+  b11 = 1.5829
+  b22 = 1.2915
+  b12 = 0.0000
+  b13 = 0.1915
+  b23 = 0.0000
+  ! R = 0.5 DIP 20 (zhypo = 22.5e3, ie 25e3 taking into account the 2.5e3 water)
+  ! mu = 0.55 0.5 rho= 3375
+  !b11 = 2.5315
+  !b22 = 1.7657
+  !b12 = 0.0000
+  !b13 = 0.2968
+  !b23 = 0.0000
+  ! R = 0.5 DIP 20 (zhypo = 22.5e3, ie 25e3 taking into account the 2.5e3 water)
+  ! mu = 0.55 0.45 rho= 3375
+  !b11 = 2.4334
+  !b22 = 1.7167
+  !b12 = 0.0000
+  !b13 = 0.2778
+  !b23 = 0.0000
+
+  g = 9.8D0    
+  zIncreasingCohesion = -15000.
+  ! Loop over every mesh element
+  DO i = 1, MESH%Fault%nSide
+       
+      ! switch for rupture front output: RF
+      IF (DISC%DynRup%RF_output_on == 1) THEN
+          ! rupture front output just for + side elements!
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+      ENDIF
+      
+      ! element ID    
+      iElem = MESH%Fault%Face(i,1,1)
+      iSide = MESH%Fault%Face(i,2,1)  
+      
+      EQN%IniBulk_xx(i,:)  =  EQN%Bulk_xx_0
+      EQN%IniBulk_yy(i,:)  =  EQN%Bulk_yy_0
+      EQN%IniBulk_zz(i,:)  =  EQN%Bulk_zz_0
+      EQN%IniShearXY(i,:)  =  EQN%ShearXY_0
+      EQN%IniShearYZ(i,:)  =  EQN%ShearYZ_0
+      EQN%IniShearXZ(i,:)  =  EQN%ShearXZ_0
+            
+      ! ini frictional parameters
+      !EQN%IniStateVar(i,:) =  EQN%RS_sv0
+                
+      ! Gauss node coordinate definition and stress assignment
+      ! get vertices of complete tet
+      IF (MESH%Fault%Face(i,1,1) == 0) THEN
+          ! iElem is in the neighbor domain
+          ! The neighbor element belongs to a different MPI domain
+          iNeighbor           = MESH%Fault%Face(i,1,2)          ! iNeighbor denotes "-" side
+          iLocalNeighborSide  = MESH%Fault%Face(i,2,2)
+          iObject  = MESH%ELEM%BoundaryToObject(iLocalNeighborSide,iNeighbor)
+          MPIIndex = MESH%ELEM%MPINumber(iLocalNeighborSide,iNeighbor)
+          !
+          xV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(1,1:4,MPIIndex)
+          yV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(2,1:4,MPIIndex)
+          zV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(3,1:4,MPIIndex)
+      ELSE
+          !
+          ! get vertices
+          xV(1:4) = MESH%VRTX%xyNode(1,MESH%ELEM%Vertex(1:4,iElem))
+          yV(1:4) = MESH%VRTX%xyNode(2,MESH%ELEM%Vertex(1:4,iElem))
+          zV(1:4) = MESH%VRTX%xyNode(3,MESH%ELEM%Vertex(1:4,iElem))
+      ENDIF
+
+      DO iBndGP = 1,DISC%Galerkin%nBndGP
+          !
+          ! Transformation of boundary GP's into XYZ coordinate system
+          chi  = MESH%ELEM%BndGP_Tri(1,iBndGP)
+          tau  = MESH%ELEM%BndGP_Tri(2,iBndGP)
+          CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,chi,tau,iSide,0)
+          CALL TetraTrafoXiEtaZeta2XYZ(xGP,yGP,zGP,xi,eta,zeta,xV,yV,zV)
+      
+          ! for possible variation
+          !DISC%DynRup%D_C(i,iBndGP)  = DISC%DynRup%D_C_ini
+          !DISC%DynRup%Mu_S(i,iBndGP) = DISC%DynRup%Mu_S_ini
+          !DISC%DynRup%Mu_D(i,iBndGP) = DISC%DynRup%Mu_D_ini
+          !
+
+          IF (yGP.LT.-65000D0) THEN
+             Ry = (-yGp - 65000D0)/40e3
+          ELSEIF (yGP.GT.65000D0) THEN
+             Ry = (yGp - 65000D0)/40e3
+          ELSE
+             Ry = 0.
+          ENDIF
+
+          IF (zGP.LT.-25000D0) THEN
+             Rz = (-zGp - 25000D0)/150e3
+          ! For z close to 0, we play with the cohesion
+          !ELSEIF (zGP.GT.-10000D0) THEN
+          !   Rz = (zGp + 10000D0)/20e3
+          ELSE
+             Rz = 0.
+          ENDIF
+
+          Omega = max(0D0,1D0-sqrt(Ry**2+Rz**2))
+
+          Pf = -1000D0 * g * zGP
+
+          ! TO BE USED WITH 1d Layered medium
+          !nLayers = 5
+          !zLayers (1:5) = (/ 0d0, -1700d0, -4000d0, -6500d0,-600d6 /)
+          !rhoLayers (1:5) = (/ 2600d0, 2900d0, 3050d0, 3375d0, 3375d0 /)
+          !sigzz = 0d0
+          !DO k=2,nLayers
+          !   IF (zGP.GT.zLayers(k)) THEN
+          !      sigzz = sigzz + rhoLayers(k-1)*(zGP-zLayers(k-1))*g
+          !   ELSE
+          !      sigzz = sigzz + rhoLayers(k-1)*(zLayers(k)-zLayers(k-1))*g
+          !   ENDIF
+          !ENDDO
+
+          sigzz = 3375d0 * g * zGP
+
+          EQN%IniBulk_zz(i,iBndGP)  =  sigzz
+          EQN%IniBulk_xx(i,iBndGP)  =  Omega*(b11*(EQN%IniBulk_zz(i,iBndGP)+Pf)-Pf)+(1d0-Omega)*EQN%IniBulk_zz(i,iBndGP)
+          EQN%IniBulk_yy(i,iBndGP)  =  Omega*(b22*(EQN%IniBulk_zz(i,iBndGP)+Pf)-Pf)+(1d0-Omega)*EQN%IniBulk_zz(i,iBndGP)
+          EQN%IniShearXY(i,iBndGP)  =  Omega*(b12*(EQN%IniBulk_zz(i,iBndGP)+Pf))
+          EQN%IniShearXZ(i,iBndGP)  =  Omega*(b13*(EQN%IniBulk_zz(i,iBndGP)+Pf))
+          EQN%IniShearYZ(i,iBndGP)  =  Omega*(b23*(EQN%IniBulk_zz(i,iBndGP)+Pf))
+          EQN%IniBulk_xx(i,iBndGP)  =  EQN%IniBulk_xx(i,iBndGP) + Pf
+          EQN%IniBulk_yy(i,iBndGP)  =  EQN%IniBulk_yy(i,iBndGP) + Pf
+          EQN%IniBulk_zz(i,iBndGP)  =  EQN%IniBulk_zz(i,iBndGP) + Pf
+
+          ! manage cohesion
+          IF (zGP.GE.zIncreasingCohesion) THEN
+              ! higher cohesion near free surface
+              DISC%DynRup%cohesion(iBndGP,i) = -0.4d6-13.0d6*(zGP-zIncreasingCohesion)/(-zIncreasingCohesion)
+          ELSE
+              ! set cohesion
+              DISC%DynRup%cohesion(iBndGP,i) = -0.4d6
+          ENDIF
+          
+      ENDDO ! iBndGP
+                
+  ENDDO !    MESH%Fault%nSide   
+                
+  END SUBROUTINE background_DIP10
+
 
   !> SCEC TPV3132 test case : strike slip rupture in layered medium
   !> T. ULRICH 02.2015
