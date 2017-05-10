@@ -83,6 +83,7 @@ CONTAINS
       TYPE(tBoundary)          :: BND                                           ! BND    data structure
       REAL                     :: MaterialVal(MESH%nElem,EQN%nBackgroundVar)    ! Local Mean Values
       REAL                     :: dt, time                                      ! Timestep and time
+      REAL                     :: SlipComputeSampling
 	  ! local variable declaration
       LOGICAL                  :: isOnPickpoint
       LOGICAL                  :: isOnElementwise
@@ -105,7 +106,14 @@ CONTAINS
             CALL energy_rate_output(MaterialVal,time,DISC,MESH,MPI,IO)
          ENDIF
       ENDIF
-
+      SlipComputeSampling=0.005d0
+      IF ((DISC%DynRup%OutputPointType.GE.4).AND.DISC%DynRup%DynRup_out_elementwise%OutputMask(6)) THEN
+         IF ((MOD(time,SlipComputeSampling).LE.0.5*dt).OR. &
+            ((ceiling(time/SlipComputeSampling)*SlipComputeSampling-time).LT.0.5*dt).OR. &
+            ((min(DISC%EndTime,dt*DISC%MaxIteration)-time).LE.(dt*1.005d0))) THEN
+          CALL calc_FaultSlipOutput(DISC%DynRup%DynRup_out_elementwise, DISC, EQN, MESH, MaterialVal, BND, SlipComputeSampling)
+         ENDIF
+      ENDIF
 
       SELECT CASE(DISC%DynRup%OutputPointType)
        ! For historical reasons fault output DISC%DynRup%OutputPointType= 3 or 4 or 5
@@ -591,38 +599,10 @@ CONTAINS
           IF (DISC%DynRup%OutputPointType.EQ.4) THEN
 
               IF (DynRup_output%OutputMask(6).EQ.1) THEN
-                  ! TU 07.15 rotate Slip from face reference coordinate to (strike,dip, normal) reference cordinate
-                  if (DISC%DynRup%BackgroundType.NE.1201) THEN
-
-                     strike_vector(1) = NormalVect_n(2)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
-                     strike_vector(2) = -NormalVect_n(1)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
-                     strike_vector(3) = 0.0D0
-                  ELSE !GEOCENTER
-                     X = DISC%DynRup%DynRup_out_elementwise%RecPoint(iOutPoints)%X
-                     Y = DISC%DynRup%DynRup_out_elementwise%RecPoint(iOutPoints)%Y
-                     Z = DISC%DynRup%DynRup_out_elementwise%RecPoint(iOutPoints)%Z
-                     uz = (/x,y,z/)
-                     uz = uz/sqrt(uz(1)**2+uz(2)**2+uz(3)**2)
-
-                     strike_vector = NormalVect_n .x. uz
-                     strike_vector = strike_vector/sqrt(strike_vector(1)**2+strike_vector(2)**2+strike_vector(3)**2)
-                  ENDIF
-
-                  cos1 = dot_product(strike_vector(:),NormalVect_s(:))
-                  crossprod(:) = strike_vector(:) .x. NormalVect_s(:)
-
-                  scalarprod = dot_product(crossprod(:),NormalVect_n(:))
-                  !TU 2.11.15 :cos1**2 can be greater than 1 because of rounding errors -> min
-                  IF (scalarprod.GT.0) THEN
-                      sin1=sqrt(1-min(1d0,cos1**2))
-                  ELSE
-                      sin1=-sqrt(1-min(1d0,cos1**2))
-                  ENDIF
-
                   OutVars = OutVars + 1
-                  DynRup_output%OutVal(iOutPoints,1,OutVars)  = cos1 * DISC%DynRup%output_Slip1(iBndGP,iFace) - sin1* DISC%DynRup%output_Slip2(iBndGP,iFace)
+                  DynRup_output%OutVal(iOutPoints,1,OutVars)  = DynRup_output%Sls(iOutPoints)
                   OutVars = OutVars + 1
-                  DynRup_output%OutVal(iOutPoints,1,OutVars)  = sin1 * DISC%DynRup%output_Slip1(iBndGP,iFace) + cos1 * DISC%DynRup%output_Slip2(iBndGP,iFace)
+                  DynRup_output%OutVal(iOutPoints,1,OutVars)  = DynRup_output%Sld(iOutPoints)
               ENDIF
 
               IF (DynRup_output%OutputMask(7).EQ.1) THEN
@@ -792,6 +772,217 @@ CONTAINS
     SCOREP_USER_FUNC_END()
     !
   END SUBROUTINE calc_FaultOutput
+
+!
+!> Fault slip output calculation at specific positions (receiver and elementwise)
+!<
+  SUBROUTINE calc_FaultSlipOutput( DynRup_output, DISC, EQN, MESH, MaterialVal, BND, dt )
+#ifdef GENERATEDKERNELS
+    use  f_ftoc_bind_interoperability
+    use iso_c_binding, only: c_loc
+#endif
+
+    !-------------------------------------------------------------------------!
+    USE common_operators_mod
+    USE JacobiNormal_mod
+    USE DGBasis_mod
+    !-------------------------------------------------------------------------!
+    IMPLICIT NONE
+    !-------------------------------------------------------------------------!
+    ! Argument list declaration
+    TYPE(tEquations)              :: EQN                                      !< EQN global variable
+    TYPE(tDiscretization), TARGET :: DISC                                     !< DISC global variable
+    TYPE(tUnstructMesh)           :: MESH                                     !< MESH global variable
+    TYPE(tInputOutput)            :: IO                                       !< IO structure
+    TYPE(tMPI)                    :: MPI                                      !< MPI
+    TYPE(tBoundary)               :: BND                                      !< BND    data structure
+    REAL                          :: MaterialVal(MESH%nElem,EQN%nBackgroundVar) !< Local Mean Values
+    REAL                          :: dt                                       !< time step
+    !-------------------------------------------------------------------------!
+    ! Local variable declaration                                              !
+    TYPE(tDynRup_output), target  :: DynRup_output                            !< Output data for Dynamic Rupture processes
+    INTEGER :: iElem                                                          ! Element number                        !
+    INTEGER :: iObject, MPIIndex, MPIIndex_DR
+    INTEGER :: iDegFr                                                         ! Degree of freedom                     !
+    INTEGER :: iVar                                                           ! Variable number                       !
+    INTEGER :: iSide
+    INTEGER :: iFace
+    INTEGER :: iNeighbor, NeigBndGP
+    INTEGER :: iLocalNeighborSide
+    INTEGER :: NeighborPoly, LocPoly, MaxDegFr, iBndGP
+    INTEGER :: NeighborDegFr, LocDegFr
+    INTEGER :: OutVars, nOutPoints
+    INTEGER :: i,j,m,k,iOutPoints                                             ! Loop variables                   !
+    INTEGER :: SubElem, number_of_subtriangles                                ! elementwise fault refinement parameters
+    REAL    :: NormalVect_n(3)                                                ! Normal vector components         !
+    REAL    :: NormalVect_s(3)                                                ! Normal vector components         !
+    REAL    :: NormalVect_t(3)                                                ! Normal vector components         !
+    REAL    :: T(EQN%nVar,EQN%nVar)                                           ! Rotation matrix
+    REAL    :: iT(EQN%nVar,EQN%nVar)                                          ! Rotation matrix
+    REAL    :: V1(DISC%Galerkin%nDegFr,EQN%nVar)                              ! Reference state     (ref)
+    REAL    :: V2(DISC%Galerkin%nDegFr,EQN%nVar)                              ! Reference state     (ref)
+    REAL    :: Stress(6)                                                      ! The background stress tensor in vector form at a single BndGP
+    REAL    :: SideVal(EQN%nVar), SideVal2(EQN%nVar)
+    REAL    :: phi(2),rho, rho_neig, mu, mu_neig, lambda, lambda_neig
+    REAL    :: LocXYStress, LocXZStress, TracXY, TracXZ, LocSRs, LocSRd
+    REAL    :: w_speed(EQN%nNonZeroEV), TracEla, Trac, Strength, LocU, LocP, w_speed_neig(EQN%nNonZeroEV)
+    REAL    :: S_0,P_0,S_XY,S_XZ
+    REAL    :: MuVal, cohesion, LocSV
+    REAL    :: LocYY, LocZZ, LocYZ                                            ! temporary stress values
+    REAL    :: tmp_mat(1:6), LocMat(1:6), TracMat(1:6)                        ! temporary stress tensors
+    REAL    :: rotmat(1:6,1:6)                                                ! Rotation matrix
+    REAL    :: TmpMat(EQN%nBackgroundVar)                                     ! temporary material values
+    REAL    :: NorDivisor,ShearDivisor,UVelDivisor
+    REAL    :: strike_vector(1:3), dip_vector(1:3), crossprod(1:3) !for rotation of Slip from local to strike, dip coordinate
+    REAL    :: cos1, sin1, scalarprod
+    REAL, PARAMETER    :: ZERO = 0.0D0
+    ! Parameters used for calculating Vr
+    LOGICAL :: compute_Vr
+    INTEGER :: nDegFr2d, jBndGP, i1, j1
+    REAL    :: chi, tau, phiT, phi2T(2),Slowness, dt_dchi, dt_dtau, Vr
+    REAL    :: dt_dx1, dt_dy1
+    REAL    :: xV(4), yV(4), zV(4)
+    REAL    :: xab(3), xac(3), grad2d(2,2), JacobiT2d(2,2)
+    REAL, ALLOCATABLE  :: projected_RT(:)
+    REAL    :: x,y,z,uz(1:3)                          !
+
+#ifndef GENERATEDKERNELS
+    REAL, POINTER     :: DOFiElem_ptr(:,:)  => NULL()                         ! Actual dof
+    REAL, POINTER     :: DOFiNeigh_ptr(:,:) => NULL()                         ! Actual dof
+#else
+    real, dimension( NUMBER_OF_BASIS_FUNCTIONS, NUMBER_OF_QUANTITIES ) :: DOFiElem_ptr ! no: it's not a pointer..
+    real, dimension( NUMBER_OF_BASIS_FUNCTIONS, NUMBER_OF_QUANTITIES ) :: DOFiNeigh_ptr ! no pointer again
+#endif
+    !-------------------------------------------------------------------------!
+    INTENT(IN)    :: BND, DISC, EQN, MESH, MaterialVal, dt
+    INTENT(INOUT) :: DynRup_output
+    !-------------------------------------------------------------------------!
+    !
+    ! register epik/scorep function
+    EPIK_FUNC_REG("calc_FaultSlipOutput")
+    SCOREP_USER_FUNC_DEFINE()
+    EPIK_FUNC_START()
+    SCOREP_USER_FUNC_BEGIN("calc_FaultSlipOutput")
+    !
+    nOutPoints = DynRup_output%nDR_pick                                        ! number of output receivers for this MPI domain
+
+    DO iOutPoints = 1,nOutPoints                                               ! loop over number of output receivers for this domain
+          !
+          iFace               = DynRup_output%RecPoint(iOutPoints)%index       ! current receiver location
+          iElem               = MESH%Fault%Face(iFace,1,1)
+          iSide               = MESH%Fault%Face(iFace,2,1)
+          !
+          iNeighbor           = MESH%Fault%Face(iFace,1,2)
+          iLocalNeighborSide  = MESH%Fault%Face(iFace,2,2)
+          !
+
+          if( iElem == 0 ) then
+#ifndef GENERATEDKERNELS
+            iObject     = mesh%elem%boundaryToObject( iLocalNeighborSide, iNeighbor )
+            mpiindex_dr = mesh%elem%mpiNumber_dr(     iLocalNeighborSide, iNeighbor )
+            dofiElem_ptr => bnd%objMpi(iObject)%mpi_dr_dgvar(:, :, mpiIndex_dr)
+#else
+            call c_interoperability_getNeighborDofsFromDerivatives( i_meshId = iNeighbor, \
+                                                                    i_faceId = iLocalNeighborSide, \
+                                                                    o_dofs   = dofiElem_ptr )
+#endif
+          else
+#ifndef GENERATEDKERNELS
+            dofiElem_ptr => disc%galerkin%dgvar( :, :, iElem,1)
+#else
+            call c_interoperability_getDofsFromDerivatives( i_meshId = iElem, \
+                                                            o_dofs   = DOFiElem_ptr)
+#endif
+          endif
+
+          IF (iNeighbor == 0) THEN
+            ! iNeighbor is in the neighbor domain
+            ! The neighbor element belongs to a different MPI domain
+            iObject  = MESH%ELEM%BoundaryToObject(iSide,iElem)
+            MPIIndex = MESH%ELEM%MPINumber(iSide,iElem)
+#ifndef GENERATEDKERNELS
+            MPIIndex_DR = MESH%ELEM%MPINumber_DR(iSide,iElem)
+
+            DOFiNeigh_ptr   => BND%ObjMPI(iObject)%MPI_DR_dgvar(:,:,MPIIndex_DR)
+#else
+            call c_interoperability_getNeighborDofsFromDerivatives( i_meshId = iElem, \
+                                                                    i_faceId = iSide, \
+                                                                    o_dofs   = DOFiNeigh_ptr )
+#endif
+          ELSE
+            ! normal case: iNeighbor present in local domain
+#ifndef GENERATEDKERNELS
+            DOFiNeigh_ptr   => DISC%Galerkin%dgvar(:,:,iNeighbor,1)
+#else
+            call c_interoperability_getDofsFromDerivatives( i_meshId = iNeighbor, \
+                                                            o_dofs   = DOFiNeigh_ptr )
+#endif
+          ENDIF
+          !
+          V1(:,:)=0.
+          V2(:,:)=0.
+          !
+          ! currently no p-adaptivity
+          ! IF(DISC%Galerkin%pAdaptivity.GE.1) THEN
+          !   LocPoly  = INT(DISC%Galerkin%LocPoly(iElem))
+          ! ELSE
+          !   LocPoly  = DISC%Galerkin%nPoly
+          ! ENDIF
+          LocPoly  = DISC%Galerkin%nPoly
+          LocDegFr = (LocPoly+1)*(LocPoly+2)*(LocPoly+3)/6.0D0
+          !
+          ! Local side's normal and tangential vectors
+          NormalVect_n = MESH%Fault%geoNormals(1:3,iFace)
+          NormalVect_s = MESH%Fault%geoTangent1(1:3,iFace)
+          NormalVect_t = MESH%Fault%geoTangent2(1:3,iFace)
+          !
+          ! Rotate DoF
+          CALL RotationMatrix3D(NormalVect_n,NormalVect_s,NormalVect_t,T(:,:),iT(:,:),EQN)
+          DO iDegFr=1,LocDegFr
+            V1(iDegFr,:)=MATMUL(iT(:,:),dofiElem_ptr(iDegFr,1:EQN%nVar))
+            V2(iDegFr,:)=MATMUL(iT(:,:),DOFiNeigh_ptr(iDegFr,1:EQN%nVar))
+          ENDDO
+          !
+          ! load nearest boundary GP: iBndGP
+          iBndGP = DynRup_output%OutInt(iOutPoints,1)
+
+          ! Obtain values at output points
+          SideVal  = 0.
+          SideVal2 = 0.
+          DO iDegFr = 1, LocDegFr
+             ! Basis functions for the automatic evaluation of DOFs at fault output nodes
+             phi(:) = DynRup_output%OutEval(iOutPoints,1,iDegFr,:)
+             SideVal(:)  = SideVal(:)  + V1(iDegFr,:)*phi(1)
+             SideVal2(:) = SideVal2(:) + V2(iDegFr,:)*phi(2)
+          ENDDO
+          
+          ! z must not be +/- (0,0,1) for the following to work (see also create_fault_rotationmatrix)
+          strike_vector(1) = NormalVect_n(2)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+          strike_vector(2) = -NormalVect_n(1)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+          strike_vector(3) = 0.0D0
+          dip_vector = NormalVect_n .x. strike_vector
+          dip_vector = dip_vector / sqrt(dip_vector(1)**2+dip_vector(2)**2+dip_vector(3)**2)
+
+
+          LocSRs = dot_product(SideVal2(8) * NormalVect_s + SideVal2(9) * NormalVect_t, strike_vector) - dot_product(SideVal(8) * NormalVect_s + SideVal(9) * NormalVect_t, strike_vector)
+          LocSRd = dot_product(SideVal2(8) * NormalVect_s + SideVal2(9) * NormalVect_t, dip_vector   ) - dot_product(SideVal(8) * NormalVect_s + SideVal(9) * NormalVect_t, dip_vector   )
+
+          DynRup_output%Sls(iOutPoints)  = DynRup_output%Sls(iOutPoints) + dt * LocSRs
+          DynRup_output%Sld(iOutPoints)  = DynRup_output%Sld(iOutPoints) + dt * LocSRd
+#ifndef GENERATEDKERNELS
+          NULLIFY(DOFiNeigh_ptr)
+#endif
+
+    ENDDO ! iOutPoints = 1,nOutPoints
+
+    !
+    CONTINUE
+
+    EPIK_FUNC_END()
+    SCOREP_USER_FUNC_END()
+    !
+  END SUBROUTINE calc_FaultSlipOutput
+
 
   !
   !> Subroutine initializing the fault output

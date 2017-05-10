@@ -1207,6 +1207,10 @@ CONTAINS
         k=k+1
         DISC%DynRup%DynRup_out_elementwise%OutputLabel(k) = 13
         k=k+1
+        ALLOCATE( DISC%DynRup%DynRup_out_elementwise%Sls(MAXVAL(DISC%DynRup%DynRup_out_elementwise%RecPoint(:)%globalreceiverindex)))
+        ALLOCATE( DISC%DynRup%DynRup_out_elementwise%Sld(MAXVAL(DISC%DynRup%DynRup_out_elementwise%RecPoint(:)%globalreceiverindex)))
+        DISC%DynRup%DynRup_out_elementwise%Sls(:)=0
+        DISC%DynRup%DynRup_out_elementwise%Sld(:)=0
        ENDIF
        IF (DISC%DynRup%DynRup_out_elementwise%OutputMask(7).EQ.1) THEN
         DISC%DynRup%DynRup_out_elementwise%OutputLabel(k) = 14

@@ -858,6 +858,8 @@ MODULE TypesDef
      REAL, POINTER                          :: OutNodes(:,:)    => NULL()                !< Node output positions at fault
      REAL, POINTER                          :: OutEval(:,:,:,:) => NULL()                !< Values for the automatic evaluation of DOFs at fault output nodes
      REAL, POINTER                          :: OutVal(:,:,:)   => NULL()                 !< State variable used at Rate-and-state friction laws
+     REAL, POINTER                          :: Sls(:)   => NULL()                        !< State variable used for storing the current strike slip
+     REAL, POINTER                          :: Sld(:)   => NULL()                        !< State variable used for storing the current dip slip
      REAL, POINTER                          :: OutInt(:,:)     => NULL()                 !< nearest BndGP from output faultreceiver
      REAL, POINTER                          :: OutInt_dist(:)   => NULL()                !< distance from nearest BndGP from output faultreceiver
      INTEGER                                :: nOutPoints                       !< Number of output points per element
