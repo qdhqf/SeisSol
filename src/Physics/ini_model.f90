@@ -130,7 +130,7 @@ CONTAINS
     REAL                            :: b11, b22, b12, b13, b23, b33           ! coefficients for special loading
     REAL                            :: yN1, yN2, yS1, yS2, xS1, xS2, alpha
     REAL                            :: nLayers, zLayers(20), rhoLayers(20)
-    REAL                            :: sigzz, Rx,Ry, Rz, g
+    REAL                            :: sigzz, Rx,Ry, Rz, g, sigmazz
     REAL                            :: bii(6)
     INTEGER         :: nTens3GP
     REAL,POINTER    :: Tens3GaussP(:,:)
@@ -647,14 +647,17 @@ CONTAINS
          !b33 = 0.974162D0
          !b13 =-0.158649D0
         !0.8
-        b11 = 1.0296d0
-        b33 = 0.9704d0
-        b13 =-0.1643d0
+        !b11 = 1.0296d0
+        !b33 = 0.9704d0
+        !b13 =-0.1643d0
         !0.7
-        b11 = 1.0285d0
-        b33 = 0.9715d0
-        b13 =-0.1584d0
+        !b11 = 1.0285d0
+        !b33 = 0.9715d0
+        !b13 =-0.1584d0
         g = 9.8D0    
+        sigmazz=-2670 * 9.8 *10e3 
+        CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., bii)
+        b11=bii(1);b22=bii(2);b12=bii(4)
 
         if (EQN%Anelasticity.EQ.1) THEN
            DO iElem=1, MESH%nElem
@@ -709,11 +712,12 @@ CONTAINS
           !ELSE
           !    Omega = 0D0
           !ENDIF
-          Pf = 0000D0 * g * z
-          EQN%IniStress(3,iElem) = 2670d0*g*(-10e3)
+          Pf = 1000D0 * g * z
+          !EQN%IniStress(3,iElem) = 2670d0*g*(-10e3)
+          EQN%IniStress(3,iElem) = 2670d0*g*z
           EQN%IniStress(1,iElem) =  Omega*(b11*(EQN%IniStress(3,iElem)+Pf)-Pf)+(1d0-Omega)*EQN%IniStress(3,iElem)
-          EQN%IniStress(2,iElem) =  Omega*(b33*(EQN%IniStress(3,iElem)+Pf)-Pf)+(1d0-Omega)*EQN%IniStress(3,iElem)
-          EQN%IniStress(4,iElem)  =  Omega*(b13*(EQN%IniStress(3,iElem)+Pf))
+          EQN%IniStress(2,iElem) =  Omega*(b22*(EQN%IniStress(3,iElem)+Pf)-Pf)+(1d0-Omega)*EQN%IniStress(3,iElem)
+          EQN%IniStress(4,iElem)  =  Omega*(b12*(EQN%IniStress(3,iElem)+Pf))
           EQN%IniStress(5,iElem)  = 0.0  
           EQN%IniStress(6,iElem)  = 0.0  
           EQN%IniStress(1,iElem)  =   EQN%IniStress(1,iElem) + Pf

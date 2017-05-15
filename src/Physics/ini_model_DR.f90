@@ -1951,7 +1951,7 @@ MODULE ini_model_DR_mod
 
       !stress in the cartesian coordinate system
       !pi/2- comes from the awkward convention on strike
-      phi_xyz=-pi/2+ strike_rad + Phi
+      phi_xyz=-pi/2 + strike_rad - Phi
       c=cos(phi_xyz);
       s=sin(phi_xyz);
       R2= transpose(reshape((/ c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0 /), shape(R2)))
@@ -2978,12 +2978,12 @@ MODULE ini_model_DR_mod
 
   
   sigmazz=-2670 * 9.8 *10e3 
-  CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, 0.7, .False., bii)
+  CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., bii)
   b11=bii(1);b22=bii(2);b12=bii(4)
   logError(*) b11,b22,b12
   g = 9.8D0    
-  !zIncreasingCohesion = -4000.
-  zIncreasingCohesion = 1e10
+  zIncreasingCohesion = -4000.
+  !zIncreasingCohesion = 1e10
   ! Loop over every mesh element
   DO i = 1, MESH%Fault%nSide
        
@@ -3064,9 +3064,10 @@ MODULE ini_model_DR_mod
           !    Omega = 0D0
           !ENDIF
 
-          Pf = 0000D0 * g * zGP
+          Pf = 1000D0 * g * zGP
           
-          EQN%IniBulk_zz(i,iBndGP)  =  2670d0*g*(-10e3)
+          !EQN%IniBulk_zz(i,iBndGP)  =  2670d0*g*(-10e3)
+          EQN%IniBulk_zz(i,iBndGP)  =  2670d0*g*zGP
           EQN%IniBulk_xx(i,iBndGP)  =  Omega*(b11*(EQN%IniBulk_zz(i,iBndGP)+Pf)-Pf)+(1d0-Omega)*EQN%IniBulk_zz(i,iBndGP)
           EQN%IniBulk_yy(i,iBndGP)  =  Omega*(b22*(EQN%IniBulk_zz(i,iBndGP)+Pf)-Pf)+(1d0-Omega)*EQN%IniBulk_zz(i,iBndGP)
           EQN%IniShearXY(i,iBndGP)  =  Omega*(b12*(EQN%IniBulk_zz(i,iBndGP)+Pf))
