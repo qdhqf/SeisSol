@@ -1926,7 +1926,7 @@ MODULE ini_model_DR_mod
   REAL                           :: strike_rad, dip_rad
   REAL                           :: c2,s2,Phi,c2bis,mu_dy,mu_st
   REAL                           :: ds, sm, phi_xyz,c,s
-  REAL                           :: sii(3), Stress(3,3), R1(3,3), R2(3,3), Stress_cartesian_norm(3,3)
+  REAL                           :: sii(3), Stress(3,3), R1(3,3), R2(3,3), R3(3,3), Stress_cartesian_norm(3,3)
   REAL                           :: bii(6),P
   REAL, PARAMETER                :: pi = 3.141592653589793d0
   INTENT(IN)    :: strike, dip, sigmazz, cohesion, R
@@ -1949,14 +1949,26 @@ MODULE ini_model_DR_mod
       sii(2)= P
       sii(3)= P - ds
 
-      !stress in the cartesian coordinate system
-      !pi/2- comes from the awkward convention on strike
-      phi_xyz=-pi/2 + strike_rad - Phi
+      !first rotation: of axis U_t
+      phi_xyz=Phi
+      c=cos(phi_xyz)
+      s=sin(phi_xyz)
+      R1= transpose(reshape((/ 1., 0.0, 0., 0.0, c, -s, 0., s, c /), shape(R1)))
+
+      !second rotation: of axis U_s
+      phi_xyz= dip_rad
+      c=cos(phi_xyz)
+      s=sin(phi_xyz)
+      R2= transpose(reshape((/ c, 0.0, s, 0.0, 1.0, 0.0, -s, 0.0, c /), shape(R2)))
+
+      !third rotation of axis U_z
+      phi_xyz=- strike_rad
       c=cos(phi_xyz);
       s=sin(phi_xyz);
-      R2= transpose(reshape((/ c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0 /), shape(R2)))
-      Stress = transpose(reshape((/ sii(1), 0.0, 0.0, 0.0, sii(3), 0.0, 0.0, 0.0, sii(2) /), shape(Stress)))
-      Stress_cartesian_norm = MATMUL(R2,MATMUL(Stress,TRANSPOSE(R2)))/sigmazz
+      R3= transpose(reshape((/ c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0 /), shape(R3)))
+
+      Stress = transpose(reshape((/ sii(2), 0.0, 0.0, 0.0, sii(1), 0.0, 0.0, 0.0, sii(3) /), shape(Stress)))
+      Stress_cartesian_norm = MATMUL(R3,MATMUL(R2,MATMUL(R1,MATMUL(Stress,MATMUL(TRANSPOSE(R1),MATMUL(TRANSPOSE(R2),TRANSPOSE(R3)))))))/sigmazz
 
   ELSE
       c2bis = c2 - cos(2d0*(Phi-dip_rad))
