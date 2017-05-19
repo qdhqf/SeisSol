@@ -1921,7 +1921,7 @@ MODULE ini_model_DR_mod
   END SUBROUTINE
 
   ! COMPUTE NORMALIZED STRESS FOLLOWING THE METHOD  OF Aochi and Madariaga 2004 extended to dip slip fault
-  SUBROUTINE STRESS_STR_DIP_SLIP_AM(DISC,strike, dip, sigmazz, cohesion, R, DipSlipFaulting, bii)
+  SUBROUTINE STRESS_STR_DIP_SLIP_AM(DISC,strike, dip, sigmazz, cohesion, R, DipSlipFaulting, s2ratio, bii)
   IMPLICIT NONE
   TYPE(tDiscretization), target  :: DISC
   LOGICAL                        :: DipSlipFaulting
@@ -1930,7 +1930,7 @@ MODULE ini_model_DR_mod
   REAL                           :: c2,s2,Phi,c2bis,mu_dy,mu_st
   REAL                           :: ds, sm, phi_xyz,c,s
   REAL                           :: sii(3), Stress(3,3), R1(3,3), R2(3,3), R3(3,3), Stress_cartesian_norm(3,3)
-  REAL                           :: bii(6),P
+  REAL                           :: bii(6),P,s2ratio
   REAL, PARAMETER                :: pi = 3.141592653589793d0
   INTENT(IN)    :: strike, dip, sigmazz, cohesion, R
   INTENT(INOUT) :: bii
@@ -1949,7 +1949,7 @@ MODULE ini_model_DR_mod
       ds =  (mu_dy * P + R*(cohesion + (mu_st-mu_dy)*P)) / (s2 + mu_dy*c2 + R*(mu_st-mu_dy)*c2)
       sm=P;
       sii(1)= P + ds
-      sii(2)= P
+      sii(2)= P - ds + 2d0*ds*s2ratio
       sii(3)= P - ds
 
       !first rotation: of axis U_t
@@ -1987,7 +1987,7 @@ MODULE ini_model_DR_mod
 
       sii(1)= sm + ds
       !could be any value between sig1 and sig3
-      sii(2)= sm 
+      sii(2)= sm - ds + 2d0*ds*s2ratio
       sii(3)= sm - ds
 
       Stress = transpose(reshape((/ sii(1), 0.0, 0.0, 0.0, sii(2), 0.0, 0.0, 0.0, sii(3) /), shape(Stress)))
@@ -2058,7 +2058,7 @@ MODULE ini_model_DR_mod
 
   IF (Laterally_homogenous_Stress.EQ.1) THEN
      ! strike, dip, sigmazz,cohesion,R
-     CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 19.0, 555562000.0, 0.4e6, 0.6, .True., bii)
+     CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 19.0, 555562000.0, 0.4e6, 0.6, .True., 0.5d0,bii)
      b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
   ELSE
      !93 4
@@ -2146,7 +2146,7 @@ MODULE ini_model_DR_mod
           ENDDO
 
           !increase tappering depth around hypocenter
-          IF (0) THEN
+          IF (.FALSE.) THEN
           IF ((yGP-yR1).LT.(xGP-XR1)) THEN
               zStressTapering = -35e3
           ELSE IF ((yGP-yR2).LT.(xGP-XR2)) THEN
@@ -2182,24 +2182,24 @@ MODULE ini_model_DR_mod
              !**yS1
              ! cst_S
              IF ((yGP-yR1).LT.(xGP-XR1)) THEN
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 10., 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 10., 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yR2).LT.(xGP-XR2)) THEN
                 alpha = ((yGP-xGP)-(yR1-xR1))/((yR2-xR2)-(yR1-xR1))
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, (1.0-alpha)*10.+alpha*EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0,.True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, (1.0-alpha)*10.+alpha*EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0,.True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yS1).LT.(xGP-XS1)) THEN
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yS2).LT.(xGP-XS2)) THEN
                 alpha = ((yGP-xGP)-(yS1-xS1))/((yS2-xS2)-(yS1-xS1))
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,(1.0-alpha)*309.0+alpha*330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,(1.0-alpha)*309.0+alpha*330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ENDIF
           ENDIF
@@ -2993,7 +2993,7 @@ MODULE ini_model_DR_mod
 
   
   sigmazz=-2670 * 9.8 *10e3 
-  CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., bii)
+  CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., 0.5d0, bii)
   b11=bii(1);b22=bii(2);b12=bii(4)
   logError(*) b11,b22,b12
   g = 9.8D0    
@@ -3542,7 +3542,7 @@ MODULE ini_model_DR_mod
   REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
   REAL                           :: chi,tau
   REAL                           :: xi, eta, zeta, XGp, YGp, ZGp, Phi
-  REAL                           :: b11, b22, b12, b13, b23, bii(6), Omega, g, Pf, zIncreasingCohesion, Rx, Ry, Rz,sigmazz
+  REAL                           :: b11, b22, b33, b12, b13, b23, bii(6), Omega, g, P,Pf, zIncreasingCohesion, Rx, Ry, Rz,sigmazz
   REAL, PARAMETER                :: pi = 3.141592653589793d0
   !-------------------------------------------------------------------------! 
   INTENT(IN)    :: MESH, BND 
@@ -3561,9 +3561,10 @@ MODULE ini_model_DR_mod
   !most favorable direction (A4, AM2003)
   Phi = pi/4d0-0.5d0*atan(DISC%DynRup%Mu_S_ini)
   !CALL STRESS_STR_DIP_SLIP_AM(DISC,115.+Phi, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., bii)
-  CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., bii)
-  b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
-  logError(*) EQN%Bulk_yy_0, EQN%Bulk_zz_0, bii
+  CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., EQN%ShearXY_0, bii)
+  bii = bii/bii(3)
+  b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
+  logError(*) EQN%Bulk_yy_0, EQN%Bulk_zz_0, EQN%ShearXY_0, bii
   g = 9.8D0    
   zIncreasingCohesion = -4000.
   !zIncreasingCohesion = 1e10
@@ -3621,12 +3622,11 @@ MODULE ini_model_DR_mod
 
           Rx=0.
 
-          IF (zGP.LT.-10000D0) THEN
-             Rz = (-zGp - 10000D0)/10e3
+          IF (zGP.LT.-13000D0) THEN
+             Rz = (-zGp - 13000D0)/20e3
           ELSE
              Rz = 0.
           ENDIF
-          Rz=0.
           Omega = 1d0-min(1D0,sqrt(Rx**2+Rz**2))
      
           ! for possible variation
@@ -3643,15 +3643,17 @@ MODULE ini_model_DR_mod
           !ENDIF
 
           Pf = 0000D0 * g * zGP
+          P = 2670d0*g*zGP
           
-          EQN%IniBulk_zz(i,iBndGP)  =  2670d0*g*zGP
-          EQN%IniBulk_xx(i,iBndGP)  =  Omega*(b11*(EQN%IniBulk_zz(i,iBndGP)+Pf)-Pf)+(1d0-Omega)*EQN%IniBulk_zz(i,iBndGP)
-          EQN%IniBulk_yy(i,iBndGP)  =  Omega*(b22*(EQN%IniBulk_zz(i,iBndGP)+Pf)-Pf)+(1d0-Omega)*EQN%IniBulk_zz(i,iBndGP)
-          EQN%IniShearXY(i,iBndGP)  =  Omega*(b12*(EQN%IniBulk_zz(i,iBndGP)+Pf))
-          EQN%IniShearXZ(i,iBndGP)  =  Omega*(b13*(EQN%IniBulk_zz(i,iBndGP)+Pf))
-          EQN%IniShearYZ(i,iBndGP)  =  Omega*(b23*(EQN%IniBulk_zz(i,iBndGP)+Pf))
+          EQN%IniBulk_zz(i,iBndGP)  =  P*b33
+          EQN%IniBulk_xx(i,iBndGP)  =  Omega*(b11*(P+Pf)-Pf)+(1d0-Omega)*P
+          EQN%IniBulk_yy(i,iBndGP)  =  Omega*(b22*(P+Pf)-Pf)+(1d0-Omega)*P
+          EQN%IniShearXY(i,iBndGP)  =  Omega*(b12*(P+Pf))
+          EQN%IniShearXZ(i,iBndGP)  =  Omega*(b13*(P+Pf))
+          EQN%IniShearYZ(i,iBndGP)  =  Omega*(b23*(P+Pf))
           EQN%IniBulk_xx(i,iBndGP)  =  EQN%IniBulk_xx(i,iBndGP) + Pf
           EQN%IniBulk_yy(i,iBndGP)  =  EQN%IniBulk_yy(i,iBndGP) + Pf
+          EQN%IniBulk_zz(i,iBndGP)  =  EQN%IniBulk_zz(i,iBndGP) + Pf
           !EQN%IniStateVar(i,iBndGP) =  EQN%RS_sv0
 
           ! manage cohesion

@@ -656,7 +656,7 @@ CONTAINS
         !b13 =-0.1584d0
         g = 9.8D0    
         sigmazz=-2670 * 9.8 *10e3 
-        CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., bii)
+        CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., 0.5d0, bii)
         b11=bii(1);b22=bii(2);b12=bii(4)
 
         if (EQN%Anelasticity.EQ.1) THEN
@@ -1412,18 +1412,18 @@ CONTAINS
 
                IF ((y-yS1).LT.(x-XS1)) THEN
                    ! strike, dip, sigmazz,cohesion,R
-                   CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 8.0, 555562000.0, 0.4e6, 0.7, .True., bii)
+                   CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 8.0, 555562000.0, 0.4e6, 0.7, .True., 0.5d0, bii)
                    b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
 
                ELSE IF ((y-yS2).LT.(x-XS2)) THEN
                    alpha = ((y-x)-(yS1-xS1))/((yS2-xS2)-(yS1-xS1))
                    ! strike, dip, sigmazz,cohesion,R
-                   CALL STRESS_STR_DIP_SLIP_AM(DISC,(1.0-alpha)*309.0+alpha*330.0, 8.0, 555562000.0, 0.4e6, 0.7, .True., bii)
+                   CALL STRESS_STR_DIP_SLIP_AM(DISC,(1.0-alpha)*309.0+alpha*330.0, 8.0, 555562000.0, 0.4e6, 0.7, .True., 0.5d0, bii)
                    b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
 
                ELSE
                    ! strike, dip, sigmazz,cohesion,R
-                   CALL STRESS_STR_DIP_SLIP_AM(DISC,330.0, 8.0, 555562000.0, 0.4e6, 0.7, .True., bii)
+                   CALL STRESS_STR_DIP_SLIP_AM(DISC,330.0, 8.0, 555562000.0, 0.4e6, 0.7, .True., 0.5d0, bii)
                    b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
                ENDIF
 
