@@ -3730,8 +3730,8 @@ MODULE ini_model_DR_mod
   hypoy = DISC%DynRup%YHypo
   hypoz = DISC%DynRup%ZHypo
 
-  ALLOCATE(  DISC%DynRup%RS_a_array(MESH%Fault%nSide,DISC%Galerkin%nBndGP)        )
-  ALLOCATE(  DISC%DynRup%RS_srW_array(MESH%Fault%nSide,DISC%Galerkin%nBndGP)      )
+  ALLOCATE(  DISC%DynRup%RS_a_array(DISC%Galerkin%nBndGP,MESH%Fault%nSide)        )
+  ALLOCATE(  DISC%DynRup%RS_srW_array(DISC%Galerkin%nBndGP,MESH%Fault%nSide)      )
   allocate(EQN%NucleationStressInFaultCS(DISC%Galerkin%nBndGP,6,MESH%Fault%nSide))
 
  
@@ -3800,8 +3800,8 @@ MODULE ini_model_DR_mod
 
       ! ini frictional parameters
       EQN%IniStateVar(i,:) =  EQN%RS_sv0
-      DISC%DynRup%RS_a_array(i,:) = DISC%DynRup%RS_a
-      DISC%DynRup%RS_srW_array(i,:) = DISC%DynRup%RS_srW
+      DISC%DynRup%RS_a_array(:,i) = DISC%DynRup%RS_a
+      DISC%DynRup%RS_srW_array(:,i) = DISC%DynRup%RS_srW
             
       ! Gauss node coordinate definition and stress assignment
       ! get vertices of complete tet
@@ -3898,8 +3898,8 @@ MODULE ini_model_DR_mod
              Rz=0d0
           ENDIF
 
-          DISC%DynRup%RS_a_array(i,iBndGP) = DISC%DynRup%RS_a+RS_a_inc*Rz
-          DISC%DynRup%RS_srW_array(i,iBndGP)=DISC%DynRup%RS_srW+RS_srW_inc*Rz
+          DISC%DynRup%RS_a_array(iBndGP,i) = DISC%DynRup%RS_a+RS_a_inc*Rz
+          DISC%DynRup%RS_srW_array(iBndGP,i)=DISC%DynRup%RS_srW+RS_srW_inc*Rz
 
       ENDDO ! iBndGP          
                 
