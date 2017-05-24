@@ -3686,6 +3686,7 @@ MODULE ini_model_DR_mod
   SUBROUTINE background_NZKaikoura_RS (DISC,EQN,MESH,BND)
   !-------------------------------------------------------------------------!
   USE DGBasis_mod
+  use JacobiNormal_mod, only: RotationMatrix3D
   !-------------------------------------------------------------------------!
   IMPLICIT NONE
   !-------------------------------------------------------------------------!
@@ -3706,6 +3707,12 @@ MODULE ini_model_DR_mod
   REAL                           :: zStressIncreaseStart,zStressIncreaseStop,zStressIncreaseWidth,zStressDecreaseStart,zStressDecreaseStop,zStressDecreaseWidth,ratioRtopo,x,Sx
   REAL                           :: zADecreaseStart,zADecreaseStop,zADecreaseWidth, RS_a_inc,RS_srW_inc
   REAL                           :: r_crit,hypox,hypoy,hypoz
+  REAL                           :: Rnuc, radius, ShapeNucleation
+  real                           :: normal(3)
+  real                           :: tangent1(3)
+  real                           :: tangent2(3)
+  real                           :: T(9,9)
+  real                           :: iT(9,9)
 
   REAL, PARAMETER                :: pi = 3.141592653589793d0
   !-------------------------------------------------------------------------! 
@@ -3718,10 +3725,15 @@ MODULE ini_model_DR_mod
   ! NOTE: z negative is depth, free surface is at z=0
   !for conveniently changing the stress level in the PARAMETER file
  
-
+  Rnuc = DISC%DynRup%R_crit
+  hypox = DISC%DynRup%XHypo
+  hypoy = DISC%DynRup%YHypo
+  hypoz = DISC%DynRup%ZHypo
 
   ALLOCATE(  DISC%DynRup%RS_a_array(MESH%Fault%nSide,DISC%Galerkin%nBndGP)        )
   ALLOCATE(  DISC%DynRup%RS_srW_array(MESH%Fault%nSide,DISC%Galerkin%nBndGP)      )
+  allocate(EQN%NucleationStressInFaultCS(DISC%Galerkin%nBndGP,6,MESH%Fault%nSide))
+
  
   sigmazz=-2670 * 9.8 *10e3 
   !most favorable direction (A4, AM2003)
@@ -3732,8 +3744,8 @@ MODULE ini_model_DR_mod
   CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.4e6, EQN%ShearXZ_0, .False., EQN%ShearXY_0, bii)
   bii = bii/bii(3)
   b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
-  Pf = -1000D0 * g * DISC%DynRup%ZHypo
-  P = 2670d0*g* DISC%DynRup%ZHypo
+  Pf = -1000D0 * g * hypoz
+  P = 2670d0*g* hypoz
   Omega=1d0
 
   DISC%DynRup%NucBulk_zz_0  =  P*b33
@@ -3747,21 +3759,23 @@ MODULE ini_model_DR_mod
   DISC%DynRup%NucBulk_zz_0  =  DISC%DynRup%NucBulk_zz_0 + Pf
 
   ! velocity weakening to strengthening at shallow depth
-  zADecreaseStart = -1e3
-  zADecreaseStop = -3e3
+  zADecreaseStart = -2e3
+  zADecreaseStop = -2.5e3
   zADecreaseWidth = zADecreaseStart-zADecreaseStop
   RS_a_inc = 0.01d0
   RS_srW_inc = 0.9d0
+  !RS_a_inc = 0.0
+  !RS_srW_inc = 0.0
 
   !less Stress at shallow depth, then increase to peak R at seismogenic depth (stress concentrations), 
   !then R decrease to 0
   zStressIncreaseStart = -7e3
-  zStressIncreaseStop = -13e3
+  zStressIncreaseStop = -11e3
   zStressIncreaseWidth = zStressIncreaseStart - zStressIncreaseStop
-  ratioRtopo = 0.8
+  ratioRtopo = 0.7
 
-  zStressDecreaseStart = -16e3
-  zStressDecreaseStop = -20e3
+  zStressDecreaseStart = -13e3
+  zStressDecreaseStop = -17e3
   zStressDecreaseWidth = zStressDecreaseStart - zStressDecreaseStop
 
   ! Loop over every mesh element
@@ -3818,6 +3832,26 @@ MODULE ini_model_DR_mod
           CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,chi,tau,iSide,0)
           CALL TetraTrafoXiEtaZeta2XYZ(xGP,yGP,zGP,xi,eta,zeta,xV,yV,zV)
 
+          ShapeNucleation=0d0
+          radius=SQRT((xGP-hypox)**2+(yGP-hypoy)**2+(zGP-hypoz)**2)
+          IF (radius.LT.Rnuc) THEN
+             ShapeNucleation=EXP(radius**2/(radius**2-Rnuc**2))
+          ENDIF
+        
+         !Rotate nucleation stress in fault coordinate system
+          normal   = MESH%Fault%geoNormals( 1:3, i)
+          tangent1 = MESH%Fault%geoTangent1(1:3, i)
+          tangent2 = MESH%Fault%geoTangent2(1:3, i)
+          CALL RotationMatrix3D(normal, tangent1, tangent2, T(:,:), iT(:,:), EQN)
+          bii(1)=DISC%DynRup%NucBulk_xx_0
+          bii(2)=DISC%DynRup%NucBulk_yy_0
+          bii(3)=DISC%DynRup%NucBulk_zz_0
+          bii(4)=DISC%DynRup%NucShearXY_0
+          bii(5)=DISC%DynRup%NucShearYZ_0
+          bii(6)=DISC%DynRup%NucShearXZ_0    
+          bii = MATMUL(iT(1:6,1:6), bii(:)) * ShapeNucleation
+          EQN%NucleationStressInFaultCS(iBndGP,:,i) = bii
+
           !see Smoothstep function order 1 (e.g. wikipedia)
           IF (zGP.GE.zStressIncreaseStart) THEN
              Rz = ratioRtopo
@@ -3857,7 +3891,7 @@ MODULE ini_model_DR_mod
           !define velocity strengthening zone
           IF (zGP.GE.zADecreaseStart) THEN
              Rz = 1d0
-          ELSE IF ((zGP.LT.zADecreaseStart).AND.(zGP.GE.zADecreaseStop)) THEN
+          ELSE IF (zGP.GE.zADecreaseStop) THEN
              x = (zGP-zADecreaseStop)/zADecreaseWidth
              Rz = (3d0*x**2-2d0*x**3)
           ELSE
